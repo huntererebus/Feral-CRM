@@ -1,0 +1,576 @@
+// ============================================================================
+// Reel — Prisma schema (Stage 1: Foundation)
+// Two-tier tenancy: Organization (agency) -> Client (agency's customer).
+// See /docs/planning-doc.md for the reasoning behind each modeling choice.
+// ============================================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Enums
+// ---------------------------------------------------------------------------
+
+enum Role {
+  platform_admin
+  org_admin
+  account_manager
+  editor
+  client
+}
+
+enum OrgStatus {
+  trial
+  active
+  suspended
+}
+
+enum ClientStatus {
+  active
+  paused
+  archived
+}
+
+enum UserStatus {
+  invited
+  active
+  suspended
+}
+
+enum ProjectStatus {
+  NEW
+  UPLOADED
+  AWAITING_ASSIGNMENT
+  ASSIGNED
+  IN_EDITING
+  INTERNAL_REVIEW
+  CLIENT_REVIEW
+  REVISION_REQUESTED
+  REVISION_IN_PROGRESS
+  FINAL_REVIEW
+  APPROVED
+  COMPLETED
+  ARCHIVED
+}
+
+enum Priority {
+  low
+  normal
+  high
+  urgent
+}
+
+enum ProjectMemberRole {
+  account_manager
+  editor
+  observer
+}
+
+enum MediaKind {
+  source
+  draft
+  final
+}
+
+enum MediaVersionStatus {
+  uploading
+  processing
+  ready
+  failed
+}
+
+enum RevisionStatus {
+  open
+  in_progress
+  resolved
+}
+
+enum ApprovalDecision {
+  approved
+  revision_requested
+}
+
+enum Visibility {
+  client_facing
+  internal
+}
+
+enum TaskStatus {
+  todo
+  in_progress
+  done
+}
+
+// ---------------------------------------------------------------------------
+// Platform & tenancy
+// ---------------------------------------------------------------------------
+
+model Organization {
+  id               String       @id @default(cuid())
+  name             String
+  slug             String       @unique
+  logoUrl          String?      @map("logo_url")
+  primaryColor     String?      @map("primary_color")
+  secondaryColor   String?      @map("secondary_color")
+  faviconUrl       String?      @map("favicon_url")
+  status           OrgStatus    @default(trial)
+  billingRef       String?      @map("billing_ref")
+  storageLimitBytes BigInt?     @map("storage_limit_bytes")
+  createdAt        DateTime     @default(now()) @map("created_at")
+  updatedAt        DateTime     @updatedAt @map("updated_at")
+
+  users            User[]
+  clients          Client[]
+  projects         Project[]
+  tags             Tag[]
+  auditLogs        AuditLog[]
+
+  @@map("organizations")
+}
+
+model Client {
+  id               String       @id @default(cuid())
+  organizationId   String       @map("organization_id")
+  organization     Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  name             String
+  primaryContactId String?      @map("primary_contact_id")
+  email            String?
+  phone            String?
+  website          String?
+  socialAccounts   Json?        @map("social_accounts")
+  accountManagerId String?      @map("account_manager_id")
+  accountManager   User?        @relation("ClientAccountManager", fields: [accountManagerId], references: [id], onDelete: SetNull)
+  status           ClientStatus @default(active)
+  notes            String?
+  billingRef       String?      @map("billing_ref")
+  createdAt        DateTime     @default(now()) @map("created_at")
+  updatedAt        DateTime     @updatedAt @map("updated_at")
+  deletedAt        DateTime?    @map("deleted_at")
+
+  contacts         Contact[]
+  users            User[]       @relation("ClientUsers")
+  projects         Project[]
+  tags             ClientTag[]
+
+  @@index([organizationId, status])
+  @@map("clients")
+}
+
+model Contact {
+  id        String   @id @default(cuid())
+  clientId  String   @map("client_id")
+  client    Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  name      String
+  email     String?
+  phone     String?
+  title     String?
+  isPrimary Boolean  @default(false) @map("is_primary")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([clientId])
+  @@map("contacts")
+}
+
+// A single users table across every role tier. See planning doc Section 6
+// for why this beats separate tables per role: auth mechanics are identical
+// across roles, only the *scope check* differs.
+model User {
+  id              String       @id @default(cuid())
+  email           String       @unique
+  passwordHash    String?      @map("password_hash") // nullable: invited-but-not-yet-set users
+  name            String
+  avatarUrl       String?      @map("avatar_url")
+  role            Role
+  organizationId  String?      @map("organization_id") // null only for platform_admin
+  organization    Organization? @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  clientId        String?      @map("client_id") // set only for role = client
+  client          Client?      @relation("ClientUsers", fields: [clientId], references: [id], onDelete: Cascade)
+  status          UserStatus   @default(invited)
+  emailVerifiedAt DateTime?    @map("email_verified_at")
+  lastLoginAt     DateTime?    @map("last_login_at")
+  createdAt       DateTime     @default(now()) @map("created_at")
+  updatedAt       DateTime     @updatedAt @map("updated_at")
+  deletedAt       DateTime?    @map("deleted_at")
+
+  sessions            Session[]
+  accounts             Account[]
+  managedClients        Client[]           @relation("ClientAccountManager")
+  projectsAsAM          Project[]          @relation("ProjectAccountManager")
+  projectsAsEditor       Project[]          @relation("ProjectEditor")
+  projectMemberships     ProjectMember[]
+  createdProjects        Project[]          @relation("ProjectCreatedBy")
+  uploadedVersions        MediaVersion[]
+  authoredComments        MediaComment[]
+  sentMessages            Message[]
+  notifications           Notification[]
+  auditLogs                AuditLog[]
+  assignedTasks            Task[]             @relation("TaskAssignee")
+  createdTasks             Task[]             @relation("TaskCreatedBy")
+  revisionRequests          RevisionRequest[]
+  approvals                 Approval[]
+
+  @@index([organizationId, role])
+  @@index([clientId])
+  @@map("users")
+}
+
+// Auth.js required tables (database session strategy — see Section 10:
+// server-side revocation is why sessions live in Postgres, not a JWT).
+model Account {
+  id                String  @id @default(cuid())
+  userId            String  @map("user_id")
+  user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type              String
+  provider          String
+  providerAccountId String  @map("provider_account_id")
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+
+  @@unique([provider, providerAccountId])
+  @@map("accounts")
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique @map("session_token")
+  userId       String   @map("user_id")
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expires      DateTime
+
+  @@map("sessions")
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+  @@map("verification_tokens")
+}
+
+// Single-use, expiring tokens for invite-based registration and password
+// reset. Kept separate from VerificationToken (Auth.js's own table) so we
+// control expiry/consumption semantics explicitly rather than relying on
+// Auth.js internals for a security-sensitive flow.
+model ActionToken {
+  id        String   @id @default(cuid())
+  userId    String   @map("user_id")
+  purpose   String // "invite" | "password_reset"
+  tokenHash String   @unique @map("token_hash")
+  expiresAt DateTime @map("expires_at")
+  usedAt    DateTime? @map("used_at")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([userId, purpose])
+  @@map("action_tokens")
+}
+
+// ---------------------------------------------------------------------------
+// Work objects
+// ---------------------------------------------------------------------------
+
+model ProjectMember {
+  id            String            @id @default(cuid())
+  projectId     String            @map("project_id")
+  project       Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  userId        String            @map("user_id")
+  user          User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  roleOnProject ProjectMemberRole @map("role_on_project")
+  addedAt       DateTime          @default(now()) @map("added_at")
+
+  @@unique([projectId, userId])
+  @@map("project_members")
+}
+
+model Project {
+  id               String         @id @default(cuid())
+  // Denormalized from client for the hottest query path — see Section 6.
+  // Set once at creation; a project never moves between clients/orgs.
+  organizationId   String         @map("organization_id")
+  organization     Organization   @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  clientId         String         @map("client_id")
+  client           Client         @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  name             String
+  description      String?
+  contentType      String?        @map("content_type")
+  platform         String?
+  priority         Priority       @default(normal)
+  status           ProjectStatus  @default(NEW)
+  accountManagerId String?        @map("account_manager_id")
+  accountManager   User?          @relation("ProjectAccountManager", fields: [accountManagerId], references: [id], onDelete: SetNull)
+  editorId         String?        @map("editor_id")
+  editor           User?          @relation("ProjectEditor", fields: [editorId], references: [id], onDelete: SetNull)
+  createdById      String         @map("created_by")
+  createdBy        User           @relation("ProjectCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  dueDate          DateTime?      @map("due_date")
+  completedAt      DateTime?      @map("completed_at")
+  createdAt        DateTime       @default(now()) @map("created_at")
+  updatedAt        DateTime       @updatedAt @map("updated_at")
+  deletedAt        DateTime?      @map("deleted_at")
+
+  requirements     ProjectRequirements?
+  members          ProjectMember[]
+  mediaAssets       MediaAsset[]
+  tasks             Task[]
+  messages           Message[]
+  tags               ProjectTag[]
+  revisionRequests     RevisionRequest[]
+  approvals            Approval[]
+
+  @@index([organizationId, status])
+  @@index([clientId, status])
+  @@map("projects")
+}
+
+model ProjectRequirements {
+  id                    String   @id @default(cuid())
+  projectId             String   @unique @map("project_id")
+  project               Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  aspectRatio           String?  @map("aspect_ratio")
+  resolution            String?
+  durationSeconds       Int?     @map("duration_seconds")
+  captionRequirements   String?  @map("caption_requirements")
+  hashtags              String[]
+  musicRequirements     String?  @map("music_requirements")
+  brandRequirements     String?  @map("brand_requirements")
+  targetPostingDate     DateTime? @map("target_posting_date")
+
+  @@map("project_requirements")
+}
+
+model Task {
+  id           String     @id @default(cuid())
+  projectId    String?    @map("project_id")
+  project      Project?   @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  assignedToId String?    @map("assigned_to")
+  assignedTo   User?      @relation("TaskAssignee", fields: [assignedToId], references: [id], onDelete: SetNull)
+  createdById  String     @map("created_by")
+  createdBy    User       @relation("TaskCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  name         String
+  description  String?
+  priority     Priority   @default(normal)
+  dueDate      DateTime?  @map("due_date")
+  status       TaskStatus @default(todo)
+  createdAt    DateTime   @default(now()) @map("created_at")
+  updatedAt    DateTime   @updatedAt @map("updated_at")
+
+  @@index([assignedToId, status])
+  @@map("tasks")
+}
+
+model Tag {
+  id             String   @id @default(cuid())
+  organizationId String   @map("organization_id")
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  name           String
+  color          String?
+
+  projectTags ProjectTag[]
+  clientTags  ClientTag[]
+
+  @@unique([organizationId, name])
+  @@map("tags")
+}
+
+model ProjectTag {
+  projectId String  @map("project_id")
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  tagId     String  @map("tag_id")
+  tag       Tag     @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([projectId, tagId])
+  @@map("project_tags")
+}
+
+model ClientTag {
+  clientId String @map("client_id")
+  client   Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  tagId    String @map("tag_id")
+  tag      Tag    @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([clientId, tagId])
+  @@map("client_tags")
+}
+
+// ---------------------------------------------------------------------------
+// Media
+// ---------------------------------------------------------------------------
+
+// The logical file (e.g. "the reel"), independent of version — see Section 6
+// for why this is split from MediaVersion.
+model MediaAsset {
+  id               String        @id @default(cuid())
+  projectId        String        @map("project_id")
+  project          Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  kind             MediaKind
+  currentVersionId String?       @unique @map("current_version_id")
+  createdById      String        @map("created_by")
+  createdAt        DateTime      @default(now()) @map("created_at")
+  archivedAt       DateTime?     @map("archived_at")
+
+  versions         MediaVersion[] @relation("AssetVersions")
+  currentVersion   MediaVersion?  @relation("CurrentVersion", fields: [currentVersionId], references: [id], onDelete: SetNull)
+
+  @@index([projectId, kind])
+  @@map("media_assets")
+}
+
+model MediaVersion {
+  id             String              @id @default(cuid())
+  mediaAssetId   String              @map("media_asset_id")
+  mediaAsset     MediaAsset          @relation("AssetVersions", fields: [mediaAssetId], references: [id], onDelete: Cascade)
+  versionNumber  Int                 @map("version_number")
+  filename       String
+  fileType       String              @map("file_type")
+  fileSizeBytes  BigInt              @map("file_size_bytes")
+  storageProvider String             @map("storage_provider") // e.g. "r2"
+  storageKey     String              @map("storage_key") // org/{orgId}/client/{clientId}/project/{projectId}/...
+  thumbnailKey   String?             @map("thumbnail_key")
+  status         MediaVersionStatus  @default(uploading)
+  uploadedById   String              @map("uploaded_by")
+  uploadedBy     User                @relation(fields: [uploadedById], references: [id], onDelete: Restrict)
+  checksum       String?
+  createdAt      DateTime            @default(now()) @map("created_at")
+
+  asAssetCurrent     MediaAsset?     @relation("CurrentVersion")
+  comments             MediaComment[]
+  revisionRequests      RevisionRequest[]
+  approvals              Approval[]
+  messageAttachments      MessageAttachment[]
+
+  @@unique([mediaAssetId, versionNumber])
+  @@map("media_versions")
+}
+
+model RevisionRequest {
+  id                 String         @id @default(cuid())
+  mediaVersionId     String         @map("media_version_id")
+  mediaVersion       MediaVersion   @relation(fields: [mediaVersionId], references: [id], onDelete: Cascade)
+  projectId          String         @map("project_id")
+  project            Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  requestedById      String         @map("requested_by")
+  requestedBy        User           @relation(fields: [requestedById], references: [id], onDelete: Restrict)
+  comment            String
+  status             RevisionStatus @default(open)
+  resolvedByVersionId String?       @map("resolved_by_version_id")
+  createdAt          DateTime       @default(now()) @map("created_at")
+  resolvedAt         DateTime?      @map("resolved_at")
+
+  @@index([projectId, status])
+  @@map("revision_requests")
+}
+
+model Approval {
+  id             String           @id @default(cuid())
+  mediaVersionId String           @map("media_version_id")
+  mediaVersion   MediaVersion     @relation(fields: [mediaVersionId], references: [id], onDelete: Cascade)
+  projectId      String           @map("project_id")
+  project        Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  approvedById   String           @map("approved_by")
+  approvedBy     User             @relation(fields: [approvedById], references: [id], onDelete: Restrict)
+  decision       ApprovalDecision
+  comment        String?
+  createdAt      DateTime         @default(now()) @map("created_at")
+
+  @@index([projectId])
+  @@map("approvals")
+}
+
+// Annotation/review comments. `visibility` lives on the row itself — see
+// Section 6 for why this isn't a separate internal-notes table.
+model MediaComment {
+  id              String     @id @default(cuid())
+  mediaVersionId  String     @map("media_version_id")
+  mediaVersion    MediaVersion @relation(fields: [mediaVersionId], references: [id], onDelete: Cascade)
+  authorId        String     @map("author_id")
+  author          User       @relation(fields: [authorId], references: [id], onDelete: Restrict)
+  body            String
+  timestampSeconds Int?      @map("timestamp_seconds") // set for video/audio timestamp comments
+  xPosition        Float?    @map("x_position") // Phase 2: image-region comments
+  yPosition        Float?    @map("y_position")
+  visibility       Visibility @default(client_facing)
+  createdAt        DateTime   @default(now()) @map("created_at")
+  resolvedAt        DateTime? @map("resolved_at")
+
+  @@index([mediaVersionId, visibility])
+  @@map("media_comments")
+}
+
+// ---------------------------------------------------------------------------
+// Communication & activity
+// ---------------------------------------------------------------------------
+
+model Message {
+  id         String     @id @default(cuid())
+  projectId  String     @map("project_id")
+  project    Project    @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  senderId   String     @map("sender_id")
+  sender     User       @relation(fields: [senderId], references: [id], onDelete: Restrict)
+  body       String
+  visibility Visibility @default(client_facing)
+  createdAt  DateTime   @default(now()) @map("created_at")
+
+  attachments MessageAttachment[]
+
+  @@index([projectId, createdAt])
+  @@map("messages")
+}
+
+model MessageAttachment {
+  id             String       @id @default(cuid())
+  messageId      String       @map("message_id")
+  message        Message      @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  mediaVersionId String       @map("media_version_id")
+  mediaVersion   MediaVersion @relation(fields: [mediaVersionId], references: [id], onDelete: Cascade)
+
+  @@map("message_attachments")
+}
+
+model Notification {
+  id        String    @id @default(cuid())
+  userId    String    @map("user_id")
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      String
+  title     String
+  body      String?
+  linkUrl   String?   @map("link_url")
+  readAt    DateTime? @map("read_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  @@index([userId, readAt])
+  @@map("notifications")
+}
+
+// Append-only. No update/delete paths should ever be written against this
+// model in application code — enforced by convention + code review, not the
+// schema, since Prisma can't forbid updates at the type level.
+model AuditLog {
+  id             String       @id @default(cuid())
+  userId         String?      @map("user_id")
+  user           User?        @relation(fields: [userId], references: [id], onDelete: SetNull)
+  organizationId String?      @map("organization_id")
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+  clientId       String?      @map("client_id")
+  action         String
+  resourceType   String       @map("resource_type")
+  resourceId     String?      @map("resource_id")
+  metadata       Json?
+  ipAddress      String?      @map("ip_address")
+  createdAt      DateTime     @default(now()) @map("created_at")
+
+  @@index([organizationId, createdAt])
+  @@index([userId, createdAt])
+  @@map("audit_logs")
+}
