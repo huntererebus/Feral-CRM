@@ -2,7 +2,9 @@ import { describe, it, expect } from "vitest";
 import {
   canViewProject,
   canAssignEditor,
+  canUploadSourceMedia,
   canUploadDraftOrFinalMedia,
+  canViewMediaAsset,
   canApproveOrRequestRevision,
   canViewComment,
   canDeleteProject,
@@ -283,5 +285,60 @@ describe("status transitions — role-eligibility plus assignment scoping", () =
     const u = user({ id: "editor-3", role: "editor", organizationId: orgA });
     const p = project({ organizationId: orgA, editorId: "editor-1", memberUserIds: ["editor-3"] });
     expect(canTransitionProjectStatus(u, p, ["editor", ...staffRoles])).toBe(true);
+  });
+});
+
+describe("media upload permissions", () => {
+  it("allows a client to upload source footage on their own project", () => {
+    const u = user({ role: "client", organizationId: orgA, clientId: clientA1 });
+    const p = project({ organizationId: orgA, clientId: clientA1 });
+    expect(canUploadSourceMedia(u, p)).toBe(true);
+  });
+
+  it("blocks a client from uploading source footage on someone else's project", () => {
+    const u = user({ role: "client", organizationId: orgA, clientId: clientA1 });
+    const p = project({ organizationId: orgA, clientId: "client-a-2" });
+    expect(canUploadSourceMedia(u, p)).toBe(false);
+  });
+
+  it("allows an account manager to upload source footage on their org's project", () => {
+    const u = user({ id: "am-1", role: "account_manager", organizationId: orgA });
+    const p = project({ organizationId: orgA });
+    expect(canUploadSourceMedia(u, p)).toBe(true);
+  });
+
+  it("blocks an editor from uploading source footage (draft/final only)", () => {
+    const u = user({ id: "editor-1", role: "editor", organizationId: orgA });
+    const p = project({ organizationId: orgA, editorId: "editor-1" });
+    expect(canUploadSourceMedia(u, p)).toBe(false);
+  });
+});
+
+describe("canViewMediaAsset — source footage stays internal", () => {
+  it("lets org staff and the assigned editor see source media", () => {
+    const oa = user({ id: "oa-1", role: "org_admin", organizationId: orgA });
+    const editor = user({ id: "editor-1", role: "editor", organizationId: orgA });
+    const p = project({ organizationId: orgA, editorId: "editor-1" });
+    expect(canViewMediaAsset(oa, p, "source")).toBe(true);
+    expect(canViewMediaAsset(editor, p, "source")).toBe(true);
+  });
+
+  it("blocks a client from viewing source media even on their own project", () => {
+    const u = user({ role: "client", organizationId: orgA, clientId: clientA1 });
+    const p = project({ organizationId: orgA, clientId: clientA1 });
+    expect(canViewMediaAsset(u, p, "source")).toBe(false);
+  });
+
+  it("lets a client view draft and final media on their own project", () => {
+    const u = user({ role: "client", organizationId: orgA, clientId: clientA1 });
+    const p = project({ organizationId: orgA, clientId: clientA1 });
+    expect(canViewMediaAsset(u, p, "draft")).toBe(true);
+    expect(canViewMediaAsset(u, p, "final")).toBe(true);
+  });
+
+  it("blocks a client from any kind on a project that isn't theirs", () => {
+    const u = user({ role: "client", organizationId: orgA, clientId: clientA1 });
+    const p = project({ organizationId: orgA, clientId: "client-a-2" });
+    expect(canViewMediaAsset(u, p, "final")).toBe(false);
   });
 });

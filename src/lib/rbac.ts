@@ -1,4 +1,4 @@
-import type { Role } from "@prisma/client";
+import type { Role, MediaKind } from "@prisma/client";
 
 /**
  * Every function here is a pure function of (user, resource) -> boolean.
@@ -115,6 +115,22 @@ export function canUploadSourceMedia(user: SessionUser, project: ProjectScope): 
 export function canUploadDraftOrFinalMedia(user: SessionUser, project: ProjectScope): boolean {
   if (user.role !== "editor") return false;
   return project.editorId === user.id || (project.memberUserIds ?? []).includes(user.id);
+}
+
+/**
+ * Gates *visibility* of a media asset by kind, on top of the general
+ * project-visibility check. Raw source footage is production input, not a
+ * deliverable — a client never sees it, even though they can often upload
+ * it themselves (canUploadSourceMedia) when it's their own raw material.
+ * Draft/final visibility isn't further restricted here by project status
+ * (e.g. hiding an unfinished draft until it's actually sent for review) —
+ * that's a "when do we notify/expose this version" decision that belongs
+ * to the Approval flow in a later stage, not a blanket kind-based rule.
+ */
+export function canViewMediaAsset(user: SessionUser, project: ProjectScope, kind: MediaKind): boolean {
+  if (!canViewProject(user, project)) return false;
+  if (kind === "source" && user.role === "client") return false;
+  return true;
 }
 
 export function canDeleteProject(user: SessionUser, project: ProjectScope): boolean {
