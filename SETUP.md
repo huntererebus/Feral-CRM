@@ -83,3 +83,15 @@ The UI pages in this stage are deliberately minimal (functional tables and forms
 ## What's next (Stage 3)
 
 Projects core: project CRUD, the full status-transition model, `ProjectMember` wiring, and the platform/content requirements sub-form — the last piece of foundation before media upload and the review/approval loop.
+
+## Stage 3: Projects core
+
+- Project CRUD (`/api/v1/projects`, `/api/v1/projects/:id`) — create, list (role-scoped: editors see only their assignments, clients see only their own projects), update, soft-delete.
+- Full status-transition model in `src/lib/project-status.ts` — a pure, DB-free directed graph (`PROJECT_STATUS_TRANSITIONS`) covering all 13 `ProjectStatus` values, with per-edge role eligibility. Two groups of edges (the client review decision, and the final QC sign-off) are modeled but left with an empty eligible-roles list on purpose — they're driven by the Approval/RevisionRequest flow landing in a later stage, not this generic endpoint. Unit-tested directly in `tests/project-status.test.ts`, independent of rbac.ts or Prisma.
+- Editor assignment (`/api/v1/projects/:id/assign-editor`) — also advances `AWAITING_ASSIGNMENT` → `ASSIGNED` as a side effect.
+- Requirements sub-form (`/api/v1/projects/:id/requirements`) — GET/PUT against the existing `ProjectRequirements` model.
+- `ProjectMember` wiring (`/api/v1/projects/:id/members`, `/api/v1/projects/:id/members/:userId`) — add/list/remove, org_admin/account_manager only.
+- New rbac.ts exports: `canManageProjectDetails`, `canManageProjectRequirements`, `canManageProjectMembers`, `canTransitionProjectStatus` (the last takes the eligible-roles list computed from the graph, then applies the per-resource editor-assignment check).
+- Minimal UI at `/org-admin/projects` (list + create) and `/org-admin/projects/:id` (status transition, editor assignment, requirements, members) — same restrained, unstyled-functional pattern as Stage 2; a real picker/dashboard UI is Stage 8 work, so editor/member assignment here takes a raw user ID rather than a populated dropdown.
+- No schema changes — `Project`, `ProjectMember`, `ProjectRequirements`, and `ProjectStatus` were already fully modeled in Stage 1's schema.
+- 66/66 tests passing (43 prior + 23 new: 12 in `project-status.test.ts`, 11 added to `rbac.test.ts`). `tsc --noEmit` shows the same pre-existing error set as Stage 2 (all downstream of `@prisma/client` not being generated in this sandbox) plus two now-fixed `noUncheckedIndexedAccess` gaps in the new transition-graph lookups — no new error categories introduced.

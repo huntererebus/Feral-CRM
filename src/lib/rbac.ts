@@ -122,6 +122,46 @@ export function canDeleteProject(user: SessionUser, project: ProjectScope): bool
   return user.role === "org_admin" || user.role === "account_manager";
 }
 
+// --- Project details / requirements / members (Stage 3) ------------------------
+
+// Same rule today (org_admin/account_manager, org-scoped) as three separate
+// named exports rather than one shared function — matches the granularity
+// of canUploadSourceMedia vs canUploadDraftOrFinalMedia above, and keeps
+// each call site's intent self-documenting if one of these three narrows
+// independently later (e.g. requirements becoming AM-only).
+export function canManageProjectDetails(user: SessionUser, project: ClientScope): boolean {
+  if (!belongsToOrganization(user, project.organizationId)) return false;
+  return user.role === "org_admin" || user.role === "account_manager";
+}
+
+export function canManageProjectRequirements(user: SessionUser, project: ClientScope): boolean {
+  return canManageProjectDetails(user, project);
+}
+
+export function canManageProjectMembers(user: SessionUser, project: ClientScope): boolean {
+  return canManageProjectDetails(user, project);
+}
+
+/**
+ * Gates a specific status transition attempt. `eligibleRoles` comes from
+ * src/lib/project-status.ts's graph (computed by the caller from the
+ * project's current status and the requested target status) — this
+ * function only knows how to check "is this actor's role on that list, and
+ * if they're an editor, are they actually assigned to this project."
+ */
+export function canTransitionProjectStatus(
+  user: SessionUser,
+  project: ProjectScope,
+  eligibleRoles: Role[]
+): boolean {
+  if (!belongsToOrganization(user, project.organizationId)) return false;
+  if (!eligibleRoles.includes(user.role)) return false;
+  if (user.role === "editor") {
+    return project.editorId === user.id || (project.memberUserIds ?? []).includes(user.id);
+  }
+  return true;
+}
+
 // --- Approvals / revisions ------------------------------------------------------
 
 export function canApproveOrRequestRevision(user: SessionUser, project: ProjectScope): boolean {

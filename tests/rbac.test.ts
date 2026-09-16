@@ -8,6 +8,9 @@ import {
   canDeleteProject,
   canInviteRole,
   canManageOrgSettings,
+  canManageProjectDetails,
+  canManageProjectMembers,
+  canTransitionProjectStatus,
   type SessionUser,
   type ProjectScope,
 } from "@/lib/rbac";
@@ -208,5 +211,77 @@ describe("user invites — who can invite whom", () => {
   it("blocks a client from inviting anyone through this path", () => {
     const u = user({ role: "client", organizationId: orgA, clientId: clientA1 });
     expect(canInviteRole(u, orgA, "client")).toBe(false);
+  });
+});
+
+describe("project details/requirements/members — org_admin/AM only, never cross-org", () => {
+  it("allows an account manager to manage project details in their org", () => {
+    const u = user({ id: "am-1", role: "account_manager", organizationId: orgA });
+    const p = project({ organizationId: orgA });
+    expect(canManageProjectDetails(u, p)).toBe(true);
+  });
+
+  it("blocks an account manager from managing a project outside their org", () => {
+    const u = user({ id: "am-1", role: "account_manager", organizationId: orgB });
+    const p = project({ organizationId: orgA });
+    expect(canManageProjectDetails(u, p)).toBe(false);
+  });
+
+  it("blocks an editor from managing project members even on their own assigned project", () => {
+    const u = user({ id: "editor-1", role: "editor", organizationId: orgA });
+    const p = project({ organizationId: orgA, editorId: "editor-1" });
+    expect(canManageProjectMembers(u, p)).toBe(false);
+  });
+
+  it("blocks a client from managing their own project's details", () => {
+    const u = user({ role: "client", organizationId: orgA, clientId: clientA1 });
+    const p = project({ organizationId: orgA, clientId: clientA1 });
+    expect(canManageProjectDetails(u, p)).toBe(false);
+  });
+});
+
+describe("status transitions — role-eligibility plus assignment scoping", () => {
+  const staffRoles: SessionUser["role"][] = ["org_admin", "account_manager"];
+
+  it("allows org staff a transition their role is listed for", () => {
+    const u = user({ id: "am-1", role: "account_manager", organizationId: orgA });
+    const p = project({ organizationId: orgA });
+    expect(canTransitionProjectStatus(u, p, staffRoles)).toBe(true);
+  });
+
+  it("blocks org staff from a different org even when their role is eligible", () => {
+    const u = user({ id: "am-1", role: "account_manager", organizationId: orgB });
+    const p = project({ organizationId: orgA });
+    expect(canTransitionProjectStatus(u, p, staffRoles)).toBe(false);
+  });
+
+  it("blocks any role not on the eligible list, e.g. a client on a staff-only transition", () => {
+    const u = user({ role: "client", organizationId: orgA, clientId: clientA1 });
+    const p = project({ organizationId: orgA, clientId: clientA1 });
+    expect(canTransitionProjectStatus(u, p, staffRoles)).toBe(false);
+  });
+
+  it("blocks every role when the transition's eligible list is empty (future-stage edges)", () => {
+    const u = user({ id: "oa-1", role: "org_admin", organizationId: orgA });
+    const p = project({ organizationId: orgA });
+    expect(canTransitionProjectStatus(u, p, [])).toBe(false);
+  });
+
+  it("allows an assigned editor when editor is on the eligible list", () => {
+    const u = user({ id: "editor-1", role: "editor", organizationId: orgA });
+    const p = project({ organizationId: orgA, editorId: "editor-1" });
+    expect(canTransitionProjectStatus(u, p, ["editor", ...staffRoles])).toBe(true);
+  });
+
+  it("blocks an unassigned editor even when editor is on the eligible list", () => {
+    const u = user({ id: "editor-1", role: "editor", organizationId: orgA });
+    const p = project({ organizationId: orgA, editorId: "editor-2" });
+    expect(canTransitionProjectStatus(u, p, ["editor", ...staffRoles])).toBe(false);
+  });
+
+  it("allows an editor listed as a ProjectMember even without being the primary editor", () => {
+    const u = user({ id: "editor-3", role: "editor", organizationId: orgA });
+    const p = project({ organizationId: orgA, editorId: "editor-1", memberUserIds: ["editor-3"] });
+    expect(canTransitionProjectStatus(u, p, ["editor", ...staffRoles])).toBe(true);
   });
 });
