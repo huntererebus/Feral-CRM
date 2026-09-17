@@ -7,6 +7,7 @@ import {
   canViewMediaAsset,
   canApproveOrRequestRevision,
   canViewComment,
+  canPostInternalNote,
   canDeleteProject,
   canInviteRole,
   canManageOrgSettings,
@@ -388,5 +389,31 @@ describe("canResolveMediaComment — same staff-scoped shape", () => {
     const u = user({ id: "am-1", role: "account_manager", organizationId: orgB });
     const p = project({ organizationId: orgA });
     expect(canResolveMediaComment(u, p)).toBe(false);
+  });
+});
+
+describe("canPostInternalNote — fixed in Stage 6 to require project visibility, not just org membership", () => {
+  it("allows an account manager on their org's project", () => {
+    const u = user({ id: "am-1", role: "account_manager", organizationId: orgA });
+    const p = project({ organizationId: orgA });
+    expect(canPostInternalNote(u, p)).toBe(true);
+  });
+
+  it("allows the assigned editor", () => {
+    const u = user({ id: "editor-1", role: "editor", organizationId: orgA });
+    const p = project({ organizationId: orgA, editorId: "editor-1" });
+    expect(canPostInternalNote(u, p)).toBe(true);
+  });
+
+  it("blocks an editor in the same org who isn't assigned to this project — the gap this stage fixed", () => {
+    const u = user({ id: "editor-2", role: "editor", organizationId: orgA });
+    const p = project({ organizationId: orgA, editorId: "editor-1" });
+    expect(canPostInternalNote(u, p)).toBe(false);
+  });
+
+  it("blocks a client regardless of assignment", () => {
+    const u = user({ role: "client", organizationId: orgA, clientId: clientA1 });
+    const p = project({ organizationId: orgA, clientId: clientA1 });
+    expect(canPostInternalNote(u, p)).toBe(false);
   });
 });

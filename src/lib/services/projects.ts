@@ -13,6 +13,7 @@ import {
   type ProjectScope,
 } from "@/lib/rbac";
 import { isValidProjectStatusTransition, eligibleRolesForTransition } from "@/lib/project-status";
+import { notifyProjectStatusChange } from "@/lib/services/notifications";
 import { recordAudit } from "@/lib/audit";
 import {
   createProjectSchema,
@@ -247,7 +248,16 @@ export async function assignEditor(
  * check (e.g. canApproveOrRequestRevision).
  */
 async function applyStatusChange(
-  existing: { id: string; status: ProjectStatus; organizationId: string; clientId: string; completedAt: Date | null },
+  existing: {
+    id: string;
+    status: ProjectStatus;
+    organizationId: string;
+    clientId: string;
+    name: string;
+    editorId: string | null;
+    accountManagerId: string | null;
+    completedAt: Date | null;
+  },
   toStatus: ProjectStatus,
   auditContext: { actorId: string; action: string; ipAddress: string | null }
 ) {
@@ -274,6 +284,22 @@ async function applyStatusChange(
     metadata: { from: existing.status, to: toStatus },
     ipAddress: auditContext.ipAddress,
   });
+
+  // Fire-and-forget-ish but still awaited: no queue in this stack yet (see
+  // SETUP.md), so this runs inline. A slow email provider adds latency to
+  // the request rather than silently dropping the notification — the
+  // safer failure mode until a real background worker exists.
+  await notifyProjectStatusChange(
+    {
+      id: existing.id,
+      name: existing.name,
+      organizationId: existing.organizationId,
+      clientId: existing.clientId,
+      editorId: existing.editorId,
+      accountManagerId: existing.accountManagerId,
+    },
+    toStatus
+  );
 
   return project;
 }

@@ -218,8 +218,14 @@ export function canViewComment(
   return true; // client_facing is visible to anyone who can see the project at all
 }
 
+/**
+ * Was previously scoped to org membership only, which meant any editor in
+ * the org could post an "internal" note on a project they aren't assigned
+ * to — flagged during Stage 5, fixed here because Stage 6's Messages reuse
+ * this same check and the gap matters more once it also gates attachments.
+ */
 export function canPostInternalNote(user: SessionUser, project: ProjectScope): boolean {
-  if (!belongsToOrganization(user, project.organizationId)) return false;
+  if (!canViewProject(user, project)) return false;
   return isOrgStaff(user);
 }
 
