@@ -237,6 +237,47 @@ export async function assignEditor(
   return project;
 }
 
+/**
+ * Shared core for actually applying a status change once some caller has
+ * already decided it's authorized. Only checks graph validity
+ * (isValidProjectStatusTransition) — never role/permission, since the two
+ * callers below each do that differently: transitionProjectStatus uses the
+ * generic per-role gate, applyProjectStatusTransitionAsSystem trusts a
+ * caller (e.g. services/reviews.ts) that already ran its own more specific
+ * check (e.g. canApproveOrRequestRevision).
+ */
+async function applyStatusChange(
+  existing: { id: string; status: ProjectStatus; organizationId: string; clientId: string; completedAt: Date | null },
+  toStatus: ProjectStatus,
+  auditContext: { actorId: string; action: string; ipAddress: string | null }
+) {
+  assert(
+    isValidProjectStatusTransition(existing.status, toStatus),
+    `Cannot move a project from ${existing.status} to ${toStatus}.`
+  );
+
+  const project = await db.project.update({
+    where: { id: existing.id },
+    data: {
+      status: toStatus,
+      completedAt: toStatus === "COMPLETED" ? new Date() : existing.completedAt,
+    },
+  });
+
+  await recordAudit({
+    userId: auditContext.actorId,
+    organizationId: existing.organizationId,
+    clientId: existing.clientId,
+    action: auditContext.action,
+    resourceType: "project",
+    resourceId: existing.id,
+    metadata: { from: existing.status, to: toStatus },
+    ipAddress: auditContext.ipAddress,
+  });
+
+  return project;
+}
+
 export async function transitionProjectStatus(
   actor: SessionUser,
   projectId: string,
@@ -249,11 +290,6 @@ export async function transitionProjectStatus(
   });
   assert(existing !== null, "Project not found.");
 
-  assert(
-    isValidProjectStatusTransition(existing.status, input.toStatus),
-    `Cannot move a project from ${existing.status} to ${input.toStatus}.`
-  );
-
   const eligibleRoles = eligibleRolesForTransition(existing.status, input.toStatus) ?? [];
   assert(
     canTransitionProjectStatus(actor, toScope(existing), eligibleRoles),
@@ -262,26 +298,31 @@ export async function transitionProjectStatus(
       : "You don't have permission to make this status change."
   );
 
-  const project = await db.project.update({
-    where: { id: projectId },
-    data: {
-      status: input.toStatus,
-      completedAt: input.toStatus === "COMPLETED" ? new Date() : existing.completedAt,
-    },
-  });
-
-  await recordAudit({
-    userId: actor.id,
-    organizationId: existing.organizationId,
-    clientId: existing.clientId,
+  return applyStatusChange(existing, input.toStatus, {
+    actorId: actor.id,
     action: "project.status_changed",
-    resourceType: "project",
-    resourceId: projectId,
-    metadata: { from: existing.status, to: input.toStatus },
     ipAddress,
   });
+}
 
-  return project;
+/**
+ * Entry point for the two status edges deliberately locked to an empty
+ * eligibleRoles list in project-status.ts (CLIENT_REVIEW -> REVISION_REQUESTED/
+ * FINAL_REVIEW, FINAL_REVIEW -> APPROVED). NEVER call this from an API route
+ * directly — it skips the generic per-role gate entirely and trusts the
+ * caller to have already authorized the action through its own check.
+ * The only callers should be services/reviews.ts's submitDraftReview and
+ * approveFinalDelivery, immediately after their canApproveOrRequestRevision
+ * check succeeds.
+ */
+export async function applyProjectStatusTransitionAsSystem(
+  projectId: string,
+  toStatus: ProjectStatus,
+  auditContext: { actorId: string; action: string; ipAddress: string | null }
+) {
+  const existing = await db.project.findFirst({ where: { id: projectId, deletedAt: null } });
+  assert(existing !== null, "Project not found.");
+  return applyStatusChange(existing, toStatus, auditContext);
 }
 
 export async function deleteProject(actor: SessionUser, projectId: string, ipAddress: string | null) {

@@ -184,6 +184,18 @@ export function canApproveOrRequestRevision(user: SessionUser, project: ProjectS
   return user.role === "client" && belongsToClient(user, project.clientId);
 }
 
+/** Staff who can see this project may mark a revision request in-progress/resolved — includes the assigned editor, who is the one actually addressing it. */
+export function canManageRevisionRequest(user: SessionUser, project: ProjectScope): boolean {
+  if (!canViewProject(user, project)) return false;
+  return isOrgStaff(user);
+}
+
+/** Same authority tier as canPostInternalNote — resolving a comment thread is a staff action, scoped to projects this staff member can actually see. */
+export function canResolveMediaComment(user: SessionUser, project: ProjectScope): boolean {
+  if (!canViewProject(user, project)) return false;
+  return isOrgStaff(user);
+}
+
 // --- Comments / messages: the client-safety-critical check -----------------------
 
 export type CommentVisibility = "client_facing" | "internal";

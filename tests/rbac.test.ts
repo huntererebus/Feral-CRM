@@ -13,6 +13,8 @@ import {
   canManageProjectDetails,
   canManageProjectMembers,
   canTransitionProjectStatus,
+  canManageRevisionRequest,
+  canResolveMediaComment,
   type SessionUser,
   type ProjectScope,
 } from "@/lib/rbac";
@@ -340,5 +342,51 @@ describe("canViewMediaAsset — source footage stays internal", () => {
     const u = user({ role: "client", organizationId: orgA, clientId: clientA1 });
     const p = project({ organizationId: orgA, clientId: "client-a-2" });
     expect(canViewMediaAsset(u, p, "final")).toBe(false);
+  });
+});
+
+describe("canManageRevisionRequest — staff scoped to projects they can view", () => {
+  it("allows an account manager on their org's project", () => {
+    const u = user({ id: "am-1", role: "account_manager", organizationId: orgA });
+    const p = project({ organizationId: orgA });
+    expect(canManageRevisionRequest(u, p)).toBe(true);
+  });
+
+  it("allows the assigned editor", () => {
+    const u = user({ id: "editor-1", role: "editor", organizationId: orgA });
+    const p = project({ organizationId: orgA, editorId: "editor-1" });
+    expect(canManageRevisionRequest(u, p)).toBe(true);
+  });
+
+  it("blocks an editor who isn't assigned to this project", () => {
+    const u = user({ id: "editor-2", role: "editor", organizationId: orgA });
+    const p = project({ organizationId: orgA, editorId: "editor-1" });
+    expect(canManageRevisionRequest(u, p)).toBe(false);
+  });
+
+  it("blocks a client", () => {
+    const u = user({ role: "client", organizationId: orgA, clientId: clientA1 });
+    const p = project({ organizationId: orgA, clientId: clientA1 });
+    expect(canManageRevisionRequest(u, p)).toBe(false);
+  });
+});
+
+describe("canResolveMediaComment — same staff-scoped shape", () => {
+  it("allows org_admin", () => {
+    const u = user({ id: "oa-1", role: "org_admin", organizationId: orgA });
+    const p = project({ organizationId: orgA });
+    expect(canResolveMediaComment(u, p)).toBe(true);
+  });
+
+  it("blocks a client even on their own project", () => {
+    const u = user({ role: "client", organizationId: orgA, clientId: clientA1 });
+    const p = project({ organizationId: orgA, clientId: clientA1 });
+    expect(canResolveMediaComment(u, p)).toBe(false);
+  });
+
+  it("blocks staff from a different org", () => {
+    const u = user({ id: "am-1", role: "account_manager", organizationId: orgB });
+    const p = project({ organizationId: orgA });
+    expect(canResolveMediaComment(u, p)).toBe(false);
   });
 });
