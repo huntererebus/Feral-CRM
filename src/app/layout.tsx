@@ -1,6 +1,14 @@
 import type { Metadata } from "next";
+import { Inter, JetBrains_Mono } from "next/font/google";
 import { getCurrentOrganization } from "@/lib/tenant";
 import "./globals.css";
+
+// Sans for everything conversational (names, comments, descriptions);
+// mono for everything measured (timecodes, file sizes, dates, status
+// codes) — see the Stage 8 design plan in SETUP.md. Loaded as CSS
+// variables, referenced from tailwind.config.ts's fontFamily.
+const sans = Inter({ subsets: ["latin"], variable: "--font-sans", display: "swap" });
+const mono = JetBrains_Mono({ subsets: ["latin"], variable: "--font-mono", display: "swap" });
 
 export const metadata: Metadata = {
   title: "Reel",
@@ -28,8 +36,8 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   }
 
   return (
-    <html lang="en" className="dark">
-      <body style={brandStyle} className="min-h-screen bg-neutral-950 text-neutral-100">
+    <html lang="en" className={`dark ${sans.variable} ${mono.variable}`}>
+      <body style={brandStyle} className="min-h-screen bg-neutral-950 font-sans text-neutral-100">
         {children}
       </body>
     </html>

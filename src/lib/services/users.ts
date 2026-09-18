@@ -1,5 +1,5 @@
 import { db } from "@/lib/db";
-import { canInviteRole, assert, type SessionUser, type InvitableRole } from "@/lib/rbac";
+import { canInviteRole, canViewOrgMembers, assert, type SessionUser, type InvitableRole } from "@/lib/rbac";
 import { issueInviteToken } from "@/lib/tokens";
 import { sendInviteEmail } from "@/lib/email";
 import { recordAudit } from "@/lib/audit";
@@ -71,4 +71,28 @@ export async function inviteUser(
   });
 
   return user;
+}
+
+/**
+ * The staff directory for a role-aware member picker (assigning an editor,
+ * adding a project member) rather than making the UI take a raw user ID.
+ * Staff-only by design — clients never browse this list.
+ */
+export async function listOrgMembers(
+  actor: SessionUser,
+  organizationId: string,
+  filters?: { role?: "org_admin" | "account_manager" | "editor" }
+) {
+  assert(canViewOrgMembers(actor, organizationId), "You don't have permission to view this organization's members.");
+
+  return db.user.findMany({
+    where: {
+      organizationId,
+      deletedAt: null,
+      status: "active",
+      ...(filters?.role ? { role: filters.role } : { role: { in: ["org_admin", "account_manager", "editor"] } }),
+    },
+    select: { id: true, name: true, email: true, role: true },
+    orderBy: { name: "asc" },
+  });
 }

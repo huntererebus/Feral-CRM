@@ -2,38 +2,47 @@
 
 import { useFormState, useFormStatus } from "react-dom";
 import { assignEditorAction, type ActionResult } from "./actions";
+import { Select } from "@/components/ui/select";
+import { Button } from "@/components/ui/button";
+import { EmptyState } from "@/components/ui/empty-state";
 
 const initialState: ActionResult = { ok: true };
 
 function SubmitButton() {
   const { pending } = useFormStatus();
   return (
-    <button
-      type="submit"
-      disabled={pending}
-      className="rounded bg-brand-primary px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
-    >
+    <Button type="submit" size="sm" disabled={pending}>
       {pending ? "Assigning…" : "Assign"}
-    </button>
+    </Button>
   );
 }
 
-// Deliberately a plain user-id field rather than a populated dropdown — a
-// proper org-member picker belongs to the dashboard work in a later stage
-// (see SETUP.md); this keeps Stage 3 scoped to the project/status/member
-// model itself, same restraint Stage 2's client form used.
-export function AssignEditorForm({ projectId }: { projectId: string }) {
+export function AssignEditorForm({
+  projectId,
+  editors,
+}: {
+  projectId: string;
+  editors: { id: string; name: string }[];
+}) {
   const [state, formAction] = useFormState(assignEditorAction, initialState);
+
+  if (editors.length === 0) {
+    return <EmptyState title="No editors yet" description="Invite an editor from Settings to assign them here." />;
+  }
 
   return (
     <form action={formAction} className="flex items-center gap-2">
       <input type="hidden" name="projectId" value={projectId} />
-      <input
-        name="editorId"
-        placeholder="Editor user ID"
-        required
-        className="rounded bg-neutral-900 px-3 py-2 text-sm"
-      />
+      <Select name="editorId" required defaultValue="">
+        <option value="" disabled>
+          Select an editor…
+        </option>
+        {editors.map((editor) => (
+          <option key={editor.id} value={editor.id}>
+            {editor.name}
+          </option>
+        ))}
+      </Select>
       <SubmitButton />
       {!state.ok && <p className="text-sm text-red-400">{state.message}</p>}
     </form>

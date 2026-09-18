@@ -134,3 +134,34 @@ This is what wires up the two status-transition edges left deliberately locked i
 - No schema changes — `Message`, `MessageAttachment`, and `Notification` were already fully modeled in Stage 1.
 - No UI in this stage, same reasoning as Stages 4–5 — deferred to Stage 8.
 - 125/125 tests passing (109 prior + 16 new: `project-notifications.test.ts`, `messages.test.ts`, plus new `canPostInternalNote` cases in `rbac.test.ts`). `tsc --noEmit` shows only the same two pre-existing error categories as Stages 4–5 — no new categories.
+
+## GitHub cleanup
+
+- Added a top-level README.md (previously missing — SETUP.md had become a build log, not an entry point). `package.json` already had `"private": true`; no other cleanup needed. No secrets or build artifacts found anywhere in git history.
+- The repo is currently **public** (made public earlier so this environment could clone it without push credentials). Worth making private again now that a normal push workflow is available — flagging since I can't change repo visibility myself.
+
+## Stage 8 (started): Dashboard UI
+
+First real UI pass, on top of the API-only foundation from Stages 1–7. This is a start, not a finish — see "Not yet converted" below.
+
+**Design plan** (per the design process): dark theme and org-injected brand colors (`--org-primary-color`/`--org-secondary-color`) were already locked in from Stage 1, so this designs within that rather than choosing a palette freely.
+- *Subject*: an editing-suite tool for editors/AMs/clients reviewing cuts against a pipeline, not a generic SaaS dashboard.
+- *Color*: dark base + the org's own accent, plus a 5-zone status-color system (`production`/`client-review`/`revision`/`complete`/`archived` in `tailwind.config.ts`) instead of 13 distinct per-status hues.
+- *Type*: Inter (sans) for conversational content, JetBrains Mono for anything measured — timecodes, file sizes, dates, status codes — echoing NLE timecode displays. Loaded via `next/font/google` in `layout.tsx`.
+- *Layout*: sidebar + topbar shell, inspector-panel style project detail (status rail + metadata alongside main content), hairline borders and minimal radius rather than the identical-rounded-card SaaS-kit default.
+- *Principle*: pipeline status is always a visual stepper, never just a text label.
+
+**What's built:**
+- `src/lib/design/status-zones.ts` — pure, unit-tested mapping of all 13 `ProjectStatus` values to a display zone + human label, and the "happy path" stepper order (display-only; `project-status.ts`'s graph remains the sole authority on what's actually reachable).
+- `src/components/ui/` — Button, Input/Textarea, Select, Panel, StatusBadge, Avatar (initials), EmptyState.
+- `src/components/project-status-stepper.tsx` — the pipeline visual; a project on a "detour" status (revision states, archived — not on the happy-path list) gets its own callout instead of being forced into the linear stepper.
+- `src/components/app-shell.tsx` + `authenticated-shell.tsx` + `nav-items.tsx` (role-aware nav) + `sidebar-nav.tsx` (active-link highlighting) + `notifications-bell.tsx` (live unread count) + `sign-out-button.tsx` — wired into `layout.tsx` for `org-admin/`, `settings/`, `platform-admin/`, and the new `notifications/` route groups.
+- **Projects list and detail pages rebuilt** on the new system — this is the product's core surface. The detail page is now an inspector layout: stepper up top, status-transition control, then a metadata rail (editor, members) beside requirements.
+- **Editor assignment and project members now use real dropdowns** instead of raw user-ID text fields — new `listOrgMembers` service (`GET /api/v1/org/members`, staff-only, new `canViewOrgMembers` rbac export) backs both pickers. This closes the placeholder noted back in Stage 3.
+- **Notifications page** (`/notifications`) — list, mark-read, mark-all-read, since the topbar bell needed somewhere to link to.
+
+**Not yet converted to the new system** (still functional, old plain markup): client CRUD, org branding settings, platform-admin organizations, auth pages (login/register/reset). **Not yet built at all**: media gallery/upload widget, review/approval UI, comments thread, messages thread. These are the natural next passes.
+
+**Environment note**: `next build` can't complete in this sandbox — `next/font/google` needs `fonts.googleapis.com`, which isn't in this environment's network allowlist (same category of limitation as the `prisma generate`/`binaries.prisma.sh` gap already noted above). `tsc --noEmit` and the full test suite are both clean, so the code itself is verified; the production build itself needs to run somewhere with normal internet access.
+
+132/132 tests passing (125 prior + 7 new: `tests/status-zones.test.ts`). `tsc --noEmit` shows only the same two pre-existing error categories as every prior stage — one new `noUncheckedIndexedAccess` gap in `statusDisplay()` was found and fixed the same way as the others.

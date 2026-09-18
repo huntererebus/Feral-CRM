@@ -236,6 +236,12 @@ export function canManageOrgSettings(user: SessionUser, organizationId: string):
   return user.role === "org_admin";
 }
 
+/** The staff directory (for assignment pickers etc.) — staff only; clients don't browse the org's member list. */
+export function canViewOrgMembers(user: SessionUser, organizationId: string): boolean {
+  if (!belongsToOrganization(user, organizationId)) return false;
+  return isOrgStaff(user);
+}
+
 export type InvitableRole = "org_admin" | "account_manager" | "editor" | "client";
 
 /**

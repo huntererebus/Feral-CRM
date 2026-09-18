@@ -2,35 +2,35 @@
 
 import { useFormState, useFormStatus } from "react-dom";
 import { transitionStatusAction, type ActionResult } from "./actions";
+import { statusDisplay } from "@/lib/design/status-zones";
+import { Select } from "@/components/ui/select";
+import { Button } from "@/components/ui/button";
+import type { ProjectStatus } from "@prisma/client";
 
 const initialState: ActionResult = { ok: true };
 
 function SubmitButton() {
   const { pending } = useFormStatus();
   return (
-    <button
-      type="submit"
-      disabled={pending}
-      className="rounded bg-brand-primary px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
-    >
+    <Button type="submit" size="sm" disabled={pending}>
       {pending ? "Updating…" : "Move status"}
-    </button>
+    </Button>
   );
 }
 
-export function StatusForm({ projectId, nextStatuses }: { projectId: string; nextStatuses: string[] }) {
+export function StatusForm({ projectId, nextStatuses }: { projectId: string; nextStatuses: ProjectStatus[] }) {
   const [state, formAction] = useFormState(transitionStatusAction, initialState);
 
   return (
     <form action={formAction} className="flex items-center gap-2">
       <input type="hidden" name="projectId" value={projectId} />
-      <select name="toStatus" required className="rounded bg-neutral-900 px-3 py-2 text-sm">
+      <Select name="toStatus" required className="w-auto">
         {nextStatuses.map((status) => (
           <option key={status} value={status}>
-            {status}
+            {statusDisplay(status).label}
           </option>
         ))}
-      </select>
+      </Select>
       <SubmitButton />
       {!state.ok && <p className="text-sm text-red-400">{state.message}</p>}
     </form>
