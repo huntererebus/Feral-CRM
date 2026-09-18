@@ -165,3 +165,23 @@ First real UI pass, on top of the API-only foundation from Stages 1–7. This is
 **Environment note**: `next build` can't complete in this sandbox — `next/font/google` needs `fonts.googleapis.com`, which isn't in this environment's network allowlist (same category of limitation as the `prisma generate`/`binaries.prisma.sh` gap already noted above). `tsc --noEmit` and the full test suite are both clean, so the code itself is verified; the production build itself needs to run somewhere with normal internet access.
 
 132/132 tests passing (125 prior + 7 new: `tests/status-zones.test.ts`). `tsc --noEmit` shows only the same two pre-existing error categories as every prior stage — one new `noUncheckedIndexedAccess` gap in `statusDisplay()` was found and fixed the same way as the others.
+
+## Stage 8 continued: full-app UI pass, auth flow, demo-readiness
+
+Picks up directly from the previous entry. Priority this pass, per direction: get every existing screen demo-ready on the new design system using only what the API already supports — no new API surface, no changes to the media/review/comments/messages endpoints.
+
+**Critical fix — there was no way to sign in.** The previous pass built the dashboard shell and assumed a session; it turned out no `/login` page existed at all, and `AuthenticatedShell` had no handling for `UnauthenticatedError`/`TenantMismatchError` beyond letting them crash the request. Fixed both: a real login page (`/login`) using a server action (`signIn("credentials", { redirect: false })`, then a role/org-aware redirect — org context present → `/org-admin/projects`, absent → `/platform-admin/organizations`), and `AuthenticatedShell` now redirects to `/login` on either error instead of crashing. This was the actual demo blocker, not a nice-to-have.
+
+**Full auth flow, all on the new design system:**
+- `/login` — org-branded (logo/name) when reached on a tenant subdomain
+- `/forgot-password`, `/reset-password` — the corresponding server actions mirror `src/app/api/auth/{forgot-password,reset-password}/route.ts`'s logic exactly (same lib primitives — `issuePasswordResetToken`, `consumeToken`, `sendPasswordResetEmail` — called directly rather than the action fetching its own app's API route over HTTP). The API routes remain the source of truth for the actual rule; these copy it, don't reinterpret it.
+- `/register` — accept-invite, same mirroring approach against `accept-invite/route.ts`
+- Root marketing page (`/`) no longer a bare placeholder — links to `/login`
+
+**Every remaining screen rebuilt on the design system**, matching the Projects work from the previous pass: clients list/create, org branding settings, platform-admin organizations list/create. All three had been wrapping their own `<main>` with padding — now plain `<div>`s, since `AppShell`'s `<main>` already owns that; a leftover inner `<main>` would have double-padded every one of these pages.
+
+**Seed data** (`prisma/seed.ts`, already existed) is the fastest path to a working demo — one platform admin, one full agency org with an org_admin/account_manager/editor/client, and one project already in `ASSIGNED` status: `npx tsx prisma/seed.ts` after migrating, then sign in with any of the printed `*.test`/`*.app` emails and `dev-password-123`.
+
+**Still not converted / not built**, same as noted last time: media gallery/upload, review/approval UI, comments, messages — deliberately last, since `listProjectMedia` (and anything else returning a `MediaVersion`) will 500 on `JSON.stringify`'s inability to serialize `fileSizeBytes: BigInt` until `jsonOk` gets a BigInt-safe serializer. Noted here rather than fixed, per this pass's explicit scope (API work comes last); flagging clearly so it isn't lost: `Organization.storageLimitBytes` has the same issue and would break the moment anything returns it too.
+
+132/132 tests still passing — this pass touched no service/validation/rbac logic, so no new tests were needed beyond what the previous pass already added.

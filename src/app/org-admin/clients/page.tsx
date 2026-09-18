@@ -2,6 +2,8 @@ import Link from "next/link";
 import { requireSession } from "@/lib/session";
 import { listClients } from "@/lib/services/clients";
 import { ForbiddenError } from "@/lib/rbac";
+import { Panel } from "@/components/ui/panel";
+import { EmptyState } from "@/components/ui/empty-state";
 import { CreateClientForm } from "./create-client-form";
 
 export default async function ClientsPage() {
@@ -9,9 +11,7 @@ export default async function ClientsPage() {
 
   if (!organizationId) {
     return (
-      <main className="mx-auto max-w-2xl p-8">
-        <p className="text-neutral-400">This page is only available within an organization&apos;s portal.</p>
-      </main>
+      <p className="text-sm text-neutral-500">This page is only available within an organization&apos;s portal.</p>
     );
   }
 
@@ -20,49 +20,47 @@ export default async function ClientsPage() {
     clients = await listClients(user, organizationId);
   } catch (err) {
     if (err instanceof ForbiddenError) {
-      return (
-        <main className="mx-auto max-w-2xl p-8">
-          <p className="text-neutral-400">You don&apos;t have access to the client list.</p>
-        </main>
-      );
+      return <p className="text-sm text-neutral-500">You don&apos;t have access to the client list.</p>;
     }
     throw err;
   }
 
   return (
-    <main className="mx-auto flex max-w-3xl flex-col gap-8 p-8">
-      <h1 className="text-xl font-semibold">Clients</h1>
+    <div className="flex max-w-4xl flex-col gap-6">
+      <h1 className="text-lg font-semibold text-neutral-100">Clients</h1>
 
       {clients.length === 0 ? (
-        <p className="text-sm text-neutral-500">No clients yet — add the first one below.</p>
+        <EmptyState title="No clients yet" description="Add the first one below." />
       ) : (
-        <table className="w-full text-left text-sm">
-          <thead className="text-neutral-500">
-            <tr>
-              <th className="py-2">Name</th>
-              <th>Account manager</th>
-              <th>Status</th>
-              <th>Projects</th>
-            </tr>
-          </thead>
-          <tbody>
-            {clients.map((client) => (
-              <tr key={client.id} className="border-t border-neutral-800">
-                <td className="py-2">
-                  <Link href={`/org-admin/clients/${client.id}`} className="hover:underline">
-                    {client.name}
-                  </Link>
-                </td>
-                <td>{client.accountManager?.name ?? "—"}</td>
-                <td>{client.status}</td>
-                <td>{client._count.projects}</td>
+        <Panel className="overflow-hidden">
+          <table className="w-full text-left text-sm">
+            <thead className="border-b border-neutral-800 text-xs uppercase tracking-wide text-neutral-500">
+              <tr>
+                <th className="px-4 py-2.5 font-medium">Name</th>
+                <th className="px-4 py-2.5 font-medium">Account manager</th>
+                <th className="px-4 py-2.5 font-medium">Status</th>
+                <th className="px-4 py-2.5 font-medium">Projects</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {clients.map((client) => (
+                <tr key={client.id} className="border-t border-neutral-900 hover:bg-neutral-900/40">
+                  <td className="px-4 py-3">
+                    <Link href={`/org-admin/clients/${client.id}`} className="font-medium text-neutral-100 hover:underline">
+                      {client.name}
+                    </Link>
+                  </td>
+                  <td className="px-4 py-3 text-neutral-400">{client.accountManager?.name ?? "—"}</td>
+                  <td className="px-4 py-3 text-neutral-400">{client.status}</td>
+                  <td className="px-4 py-3 font-mono text-neutral-400">{client._count.projects}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </Panel>
       )}
 
       <CreateClientForm />
-    </main>
+    </div>
   );
 }

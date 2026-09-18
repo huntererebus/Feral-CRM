@@ -2,19 +2,18 @@
 
 import { useFormState, useFormStatus } from "react-dom";
 import { createOrganizationAction, type ActionResult } from "./actions";
+import { Panel, PanelHeader, PanelBody } from "@/components/ui/panel";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
 
 const initialState: ActionResult = { ok: true };
 
 function SubmitButton() {
   const { pending } = useFormStatus();
   return (
-    <button
-      type="submit"
-      disabled={pending}
-      className="rounded bg-brand-primary px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
-    >
+    <Button type="submit" disabled={pending}>
       {pending ? "Creating…" : "Create organization"}
-    </button>
+    </Button>
   );
 }
 
@@ -22,36 +21,22 @@ export function CreateOrganizationForm() {
   const [state, formAction] = useFormState(createOrganizationAction, initialState);
 
   return (
-    <form action={formAction} className="flex flex-col gap-3 rounded border border-neutral-800 p-4">
-      <h2 className="text-sm font-medium text-neutral-300">New agency</h2>
-      <input
-        name="name"
-        placeholder="Agency name"
-        required
-        className="rounded bg-neutral-900 px-3 py-2 text-sm"
-      />
-      <input
-        name="slug"
-        placeholder="subdomain-slug"
-        required
-        pattern="[a-z0-9-]+"
-        className="rounded bg-neutral-900 px-3 py-2 text-sm"
-      />
-      <input
-        name="adminName"
-        placeholder="First admin's name"
-        required
-        className="rounded bg-neutral-900 px-3 py-2 text-sm"
-      />
-      <input
-        name="adminEmail"
-        type="email"
-        placeholder="First admin's email"
-        required
-        className="rounded bg-neutral-900 px-3 py-2 text-sm"
-      />
-      {!state.ok && <p className="text-sm text-red-400">{state.message}</p>}
-      <SubmitButton />
-    </form>
+    <Panel>
+      <PanelHeader>
+        <h2 className="text-sm font-medium text-neutral-300">New agency</h2>
+      </PanelHeader>
+      <PanelBody>
+        <form action={formAction} className="flex flex-col gap-3">
+          <Input name="name" placeholder="Agency name" required />
+          <Input name="slug" placeholder="subdomain-slug" required pattern="[a-z0-9-]+" className="font-mono" />
+          <Input name="adminName" placeholder="First admin's name" required />
+          <Input name="adminEmail" type="email" placeholder="First admin's email" required />
+          {!state.ok && <p className="text-sm text-red-400">{state.message}</p>}
+          <div>
+            <SubmitButton />
+          </div>
+        </form>
+      </PanelBody>
+    </Panel>
   );
 }
