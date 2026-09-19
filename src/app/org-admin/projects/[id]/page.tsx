@@ -2,13 +2,16 @@ import { requireSession } from "@/lib/session";
 import { getProject } from "@/lib/services/projects";
 import { listOrgMembers } from "@/lib/services/users";
 import { PROJECT_STATUS_TRANSITIONS } from "@/lib/project-status";
-import { ForbiddenError } from "@/lib/rbac";
+import { ForbiddenError, type ProjectScope } from "@/lib/rbac";
 import { ProjectStatusStepper } from "@/components/project-status-stepper";
 import { Panel, PanelHeader, PanelBody } from "@/components/ui/panel";
 import { StatusForm } from "./status-form";
 import { AssignEditorForm } from "./assign-editor-form";
 import { RequirementsForm } from "./requirements-form";
 import { MembersPanel } from "./members-panel";
+import { ReviewPanel } from "./review-panel";
+import { MediaSection } from "./media-section";
+import { MessagesPanel } from "./messages-panel";
 
 export default async function ProjectDetailPage({ params }: { params: { id: string } }) {
   const { user, organizationId } = await requireSession();
@@ -25,6 +28,14 @@ export default async function ProjectDetailPage({ params }: { params: { id: stri
 
   const nextStatuses = (PROJECT_STATUS_TRANSITIONS[project.status] ?? []).map((t) => t.to);
   const canManage = user.role === "org_admin" || user.role === "account_manager";
+
+  const scope: ProjectScope = {
+    organizationId: project.organizationId,
+    clientId: project.clientId,
+    accountManagerId: project.accountManagerId,
+    editorId: project.editorId,
+    memberUserIds: project.members.map((m) => m.userId),
+  };
 
   // Only fetched for staff who can actually act on these — a client or an
   // editor without manage rights never needs the org's member directory.
@@ -50,6 +61,8 @@ export default async function ProjectDetailPage({ params }: { params: { id: stri
           <ProjectStatusStepper status={project.status} />
         </PanelBody>
       </Panel>
+
+      <ReviewPanel projectId={project.id} status={project.status} user={user} scope={scope} />
 
       {nextStatuses.length > 0 && (
         <Panel>
@@ -108,6 +121,10 @@ export default async function ProjectDetailPage({ params }: { params: { id: stri
           </Panel>
         )}
       </div>
+
+      <MediaSection projectId={project.id} user={user} scope={scope} />
+
+      <MessagesPanel projectId={project.id} user={user} scope={scope} />
     </div>
   );
 }

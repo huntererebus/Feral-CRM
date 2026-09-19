@@ -1,19 +1,10 @@
-import { NextResponse } from "next/server";
-import { ZodError } from "zod";
 import { UnauthenticatedError, TenantMismatchError } from "@/lib/session";
 import { ForbiddenError } from "@/lib/rbac";
 import { TenantResolutionError } from "@/lib/tenant";
+import { ZodError } from "zod";
+import { jsonError } from "@/lib/json-response";
 
-export function jsonOk<T>(data: T, init?: { status?: number; meta?: unknown }) {
-  return NextResponse.json(
-    { data, ...(init?.meta ? { meta: init.meta } : {}) },
-    { status: init?.status ?? 200 }
-  );
-}
-
-export function jsonError(code: string, message: string, status: number) {
-  return NextResponse.json({ error: { code, message } }, { status });
-}
+export { jsonOk, jsonError } from "@/lib/json-response";
 
 /**
  * Wraps a route handler so every route gets consistent error → status-code
