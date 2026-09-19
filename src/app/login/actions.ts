@@ -34,3 +34,14 @@ export async function loginAction(_prevState: ActionResult, formData: FormData):
   const org = await getCurrentOrganization();
   redirect(org ? "/org-admin/projects" : "/platform-admin/organizations");
 }
+
+export async function oauthSignInAction(provider: "google" | "apple") {
+  // Where the user lands is decided by the tenant context they initiated
+  // from, not anything OAuth returns — auth.ts's signIn() callback only
+  // lets this succeed at all when the account belongs to the org on this
+  // subdomain (or is a platform_admin on the base domain), so a successful
+  // callback always means the same destination the credentials flow above
+  // would have picked.
+  const org = await getCurrentOrganization();
+  await signIn(provider, { redirectTo: org ? "/org-admin/projects" : "/platform-admin/organizations" });
+}

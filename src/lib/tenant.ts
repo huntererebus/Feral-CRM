@@ -45,3 +45,18 @@ export async function requireCurrentOrganization(): Promise<Organization> {
   }
   return org;
 }
+
+/**
+ * The base host for links that must always land on a fixed, single
+ * location regardless of which org subdomain the request originated from
+ * — OAuth callback URLs (auth.ts) being the main reason this needs to
+ * exist as a shared helper rather than living only in email.ts, which
+ * originally had its own copy of this exact fallback logic.
+ */
+export function getBaseAppHost(): string {
+  return process.env.APP_BASE_DOMAIN_DEV ?? process.env.APP_BASE_DOMAIN ?? "reel.app";
+}
+
+export function resolveTenantHost(orgSlug: string | null): string {
+  return orgSlug ? `${orgSlug}.${getBaseAppHost()}` : getBaseAppHost();
+}

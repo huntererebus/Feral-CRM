@@ -1,4 +1,5 @@
 import { Resend } from "resend";
+import { resolveTenantHost } from "@/lib/tenant";
 
 // Lazy singleton, same reasoning as storage.ts's getR2Client() — constructed
 // once, not at module-import time, so importing this file doesn't require
@@ -30,11 +31,6 @@ async function sendEmail(params: { to: string; subject: string; html: string; lo
   await resend.emails.send({ from: FROM_ADDRESS, to: params.to, subject: params.subject, html: params.html });
 }
 
-function resolveHost(orgSlug: string | null): string | undefined {
-  const base = process.env.APP_BASE_DOMAIN_DEV ?? process.env.APP_BASE_DOMAIN;
-  return orgSlug ? `${orgSlug}.${base}` : base;
-}
-
 export async function sendInviteEmail(params: {
   to: string;
   inviterName: string;
@@ -43,7 +39,7 @@ export async function sendInviteEmail(params: {
   token: string;
   orgSlug: string | null; // null for a platform_admin invite (base domain)
 }) {
-  const link = `http://${resolveHost(params.orgSlug)}/register?token=${params.token}`;
+  const link = `http://${resolveTenantHost(params.orgSlug)}/register?token=${params.token}`;
   await sendEmail({
     to: params.to,
     subject: `You've been invited to ${params.organizationName}`,
@@ -58,7 +54,7 @@ export async function sendPasswordResetEmail(params: {
   token: string;
   orgSlug: string | null;
 }) {
-  const link = `http://${resolveHost(params.orgSlug)}/reset-password?token=${params.token}`;
+  const link = `http://${resolveTenantHost(params.orgSlug)}/reset-password?token=${params.token}`;
   await sendEmail({
     to: params.to,
     subject: `Reset your password for ${params.organizationName}`,
@@ -82,7 +78,7 @@ export async function sendNotificationEmail(params: {
   linkPath: string | null;
   orgSlug: string | null;
 }) {
-  const host = resolveHost(params.orgSlug);
+  const host = resolveTenantHost(params.orgSlug);
   const link = params.linkPath ? `http://${host}${params.linkPath}` : undefined;
   await sendEmail({
     to: params.to,
